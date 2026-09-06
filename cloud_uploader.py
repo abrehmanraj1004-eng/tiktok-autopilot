@@ -408,6 +408,17 @@ def upload_to_tiktok(video_path: str, caption: str, cookie_input: str, is_privat
 
         # Ingestion wait
         time.sleep(10)
+
+        # Dismiss 'Got It' editing features tooltip if present
+        try:
+            got_its = driver.find_elements(By.XPATH, '//button[normalize-space()="Got It" or normalize-space()="Got it" or contains(., "Got It") or contains(., "Got it")]')
+            if got_its:
+                driver.execute_script("arguments[0].click();", got_its[0])
+                safe_print("[TikTok] Dismissed 'Got It' popup.")
+                time.sleep(1)
+        except Exception:
+            pass
+
         try:
             driver.save_screenshot(os.path.join(screenshot_dir, "02_video_attached.png"))
         except Exception:
@@ -418,31 +429,39 @@ def upload_to_tiktok(video_path: str, caption: str, cookie_input: str, is_privat
             safe_print("[TikTok] Setting video privacy to PRIVATE (Only you)...")
             time.sleep(2)
             try:
-                # 1. Try dropdown selection (TikTok Studio standard)
-                drops = driver.find_elements(By.XPATH, '//*[contains(@class, "select") or @role="combobox" or contains(@class, "Select")][contains(., "Everyone") or contains(., "Who can watch")]')
-                if drops:
-                    driver.execute_script("arguments[0].click();", drops[0])
+                # 1. Click the 'Everyone' dropdown container under 'Who can see this post'
+                everyone_triggers = driver.find_elements(
+                    By.XPATH,
+                    '//*[contains(text(), "Who can see this post")]/following::*[normalize-space()="Everyone"][1] | //div[normalize-space()="Everyone"] | //span[normalize-space()="Everyone"]'
+                )
+                if everyone_triggers:
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", everyone_triggers[0])
+                    time.sleep(0.5)
+                    driver.execute_script("arguments[0].click();", everyone_triggers[0])
+                    safe_print("[TikTok] Opened 'Who can see this post' dropdown.")
+                    time.sleep(1.5)
+
+                # 2. Click 'Only you' option
+                only_you_opts = driver.find_elements(
+                    By.XPATH,
+                    '//*[normalize-space()="Only you" or contains(text(), "Only you")]'
+                )
+                if only_you_opts:
+                    driver.execute_script("arguments[0].click();", only_you_opts[-1])
+                    safe_print("[TikTok] Successfully selected 'Only you' (Private) visibility!")
                     time.sleep(1)
-                    priv_opts = driver.find_elements(By.XPATH, '//*[(normalize-space()="Private" or normalize-space()="Only you") and not(self::select)]')
-                    if priv_opts:
-                        driver.execute_script("arguments[0].click();", priv_opts[0])
-                        safe_print("[TikTok] Successfully selected Private visibility via dropdown.")
-                
-                # 2. Try radio/label selectors
-                priv_selectors = [
-                    '//input[@type="radio" and (@value="private" or @value="self" or @value="2")]',
-                    '//label[contains(., "Private") or contains(., "Only you")]',
-                    '//span[normalize-space()="Private" or normalize-space()="Only you"]',
-                    '//div[normalize-space()="Private" or normalize-space()="Only you"]'
-                ]
-                for p_sel in priv_selectors:
-                    p_btns = driver.find_elements(By.XPATH, p_sel)
-                    if p_btns:
-                        target_p = p_btns[0]
-                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_p)
-                        driver.execute_script("arguments[0].click();", target_p)
-                        safe_print("[TikTok] Successfully selected Private visibility via element.")
-                        break
+                else:
+                    # Fallback radio / label
+                    priv_selectors = [
+                        '//input[@type="radio" and (@value="private" or @value="self" or @value="2")]',
+                        '//label[contains(., "Private") or contains(., "Only you")]'
+                    ]
+                    for p_sel in priv_selectors:
+                        p_btns = driver.find_elements(By.XPATH, p_sel)
+                        if p_btns:
+                            driver.execute_script("arguments[0].click();", p_btns[0])
+                            safe_print("[TikTok] Selected Private via fallback selector.")
+                            break
             except Exception as pe:
                 safe_print(f"[TikTok] Note selecting private visibility: {pe}")
 
@@ -531,14 +550,26 @@ def upload_to_tiktok(video_path: str, caption: str, cookie_input: str, is_privat
         except Exception:
             pass
 
-        # Handle any modal popups (e.g. 'Post anyway', 'Confirm', 'Copyright check')
+        # Handle 'Continue to post?' modal by clicking 'Post now'
+        safe_print("[TikTok] Checking for 'Continue to post? -> Post now' modal...")
+        time.sleep(2)
+        for attempt in range(8):
+            post_now_btns = driver.find_elements(
+                By.XPATH,
+                '//button[normalize-space()="Post now" or contains(., "Post now") or contains(., "Post anyway") or contains(., "Publish anyway")]'
+            )
+            if post_now_btns:
+                target_modal_btn = post_now_btns[0]
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_modal_btn)
+                time.sleep(0.5)
+                driver.execute_script("arguments[0].click();", target_modal_btn)
+                safe_print(f"[TikTok] Successfully clicked 'Post now' on confirmation modal (attempt {attempt+1})!")
+                time.sleep(4)
+                break
+            time.sleep(1)
+
         try:
-            modals = driver.find_elements(By.XPATH, '//button[contains(., "Post anyway") or contains(., "Publish anyway") or contains(., "Confirm")]')
-            for m in modals:
-                if m.is_displayed():
-                    driver.execute_script("arguments[0].click();", m)
-                    safe_print("[TikTok] Dismissed confirmation modal.")
-                    time.sleep(2)
+            driver.save_screenshot(os.path.join(screenshot_dir, "05_after_modal_post_now.png"))
         except Exception:
             pass
 
