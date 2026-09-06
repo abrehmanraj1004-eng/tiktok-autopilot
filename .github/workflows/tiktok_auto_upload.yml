@@ -8,6 +8,11 @@ on:
     - cron: '58 15,17,19 * * *'
   workflow_dispatch:
     inputs:
+      test_upload_private:
+        description: 'Upload 1 old video as PRIVATE to test end-to-end'
+        required: false
+        type: boolean
+        default: false
       test_login:
         description: 'Verify TikTok login & cookies in cloud browser'
         required: false
@@ -61,9 +66,12 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
           INSTANT: ${{ inputs.instant_check }}
           TEST_LOGIN: ${{ inputs.test_login }}
+          TEST_UPLOAD_PRIVATE: ${{ inputs.test_upload_private }}
         run: |
           ARGS=""
-          if [ "$TEST_LOGIN" = "true" ]; then
+          if [ "$TEST_UPLOAD_PRIVATE" = "true" ]; then
+            ARGS="$ARGS --test-upload-private"
+          elif [ "$TEST_LOGIN" = "true" ]; then
             ARGS="$ARGS --test-login"
           elif [ "$DRY_RUN" = "true" ]; then
             ARGS="$ARGS --dry-run"
