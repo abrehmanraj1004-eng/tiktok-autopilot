@@ -229,10 +229,13 @@ def download_via_cnvmp3(video_id: str, output_path: str) -> Optional[Dict[str, A
         }
         r = requests.get(encoded_url, headers=stream_headers, stream=True, timeout=60)
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-        with open(output_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=16384):
-                if chunk:
-                    f.write(chunk)
+        try:
+            with open(output_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=16384):
+                    if chunk:
+                        f.write(chunk)
+        except Exception as se:
+            safe_print(f"[Downloader-cnvmp3] Stream finished/ended: {se}")
 
         if os.path.exists(output_path) and os.path.getsize(output_path) > 200000:
             safe_print(f"[Downloader-cnvmp3] Download successful! Size: {os.path.getsize(output_path)} bytes")
@@ -370,11 +373,18 @@ def upload_to_tiktok(video_path: str, caption: str, cookie_input: str, is_privat
 
         safe_print(f"[TikTok] Injected cookies into session (Success: {cookies_injected}).")
 
-        # 3. Open TikTok Creator Center Upload Page
-        upload_url = "https://www.tiktok.com/creator-center/upload?from=upload"
+        # 3. Open TikTok Studio Upload Page
+        screenshot_dir = os.path.join(os.path.dirname(os.path.abspath(video_path)), "screenshots")
+        os.makedirs(screenshot_dir, exist_ok=True)
+
+        upload_url = "https://www.tiktok.com/tiktokstudio/upload"
         safe_print(f"[TikTok] Navigating to upload studio: {upload_url}")
         driver.get(upload_url)
-        time.sleep(5)
+        time.sleep(6)
+        try:
+            driver.save_screenshot(os.path.join(screenshot_dir, "01_landed.png"))
+        except Exception:
+            pass
 
         # Wait for file input element
         file_input = None
@@ -397,13 +407,28 @@ def upload_to_tiktok(video_path: str, caption: str, cookie_input: str, is_privat
         file_input.send_keys(os.path.abspath(video_path))
 
         # Ingestion wait
-        time.sleep(8)
+        time.sleep(10)
+        try:
+            driver.save_screenshot(os.path.join(screenshot_dir, "02_video_attached.png"))
+        except Exception:
+            pass
 
         # Set Private visibility if requested
         if is_private:
             safe_print("[TikTok] Setting video privacy to PRIVATE (Only you)...")
             time.sleep(2)
             try:
+                # 1. Try dropdown selection (TikTok Studio standard)
+                drops = driver.find_elements(By.XPATH, '//*[contains(@class, "select") or @role="combobox" or contains(@class, "Select")][contains(., "Everyone") or contains(., "Who can watch")]')
+                if drops:
+                    driver.execute_script("arguments[0].click();", drops[0])
+                    time.sleep(1)
+                    priv_opts = driver.find_elements(By.XPATH, '//*[(normalize-space()="Private" or normalize-space()="Only you") and not(self::select)]')
+                    if priv_opts:
+                        driver.execute_script("arguments[0].click();", priv_opts[0])
+                        safe_print("[TikTok] Successfully selected Private visibility via dropdown.")
+                
+                # 2. Try radio/label selectors
                 priv_selectors = [
                     '//input[@type="radio" and (@value="private" or @value="self" or @value="2")]',
                     '//label[contains(., "Private") or contains(., "Only you")]',
@@ -416,10 +441,15 @@ def upload_to_tiktok(video_path: str, caption: str, cookie_input: str, is_privat
                         target_p = p_btns[0]
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_p)
                         driver.execute_script("arguments[0].click();", target_p)
-                        safe_print("[TikTok] Successfully selected Private visibility.")
+                        safe_print("[TikTok] Successfully selected Private visibility via element.")
                         break
             except Exception as pe:
                 safe_print(f"[TikTok] Note selecting private visibility: {pe}")
+
+            try:
+                driver.save_screenshot(os.path.join(screenshot_dir, "03_privacy_caption.png"))
+            except Exception:
+                pass
 
         # 4. Set Caption
         if caption:
@@ -495,6 +525,22 @@ def upload_to_tiktok(video_path: str, caption: str, cookie_input: str, is_privat
         time.sleep(1)
         driver.execute_script("arguments[0].click();", target_btn)
         safe_print("[TikTok] Clicked Post button! Waiting for publication confirmation...")
+        time.sleep(3)
+        try:
+            driver.save_screenshot(os.path.join(screenshot_dir, "04_after_click_post.png"))
+        except Exception:
+            pass
+
+        # Handle any modal popups (e.g. 'Post anyway', 'Confirm', 'Copyright check')
+        try:
+            modals = driver.find_elements(By.XPATH, '//button[contains(., "Post anyway") or contains(., "Publish anyway") or contains(., "Confirm")]')
+            for m in modals:
+                if m.is_displayed():
+                    driver.execute_script("arguments[0].click();", m)
+                    safe_print("[TikTok] Dismissed confirmation modal.")
+                    time.sleep(2)
+        except Exception:
+            pass
 
         # Confirmation check
         confirmed = False
@@ -561,8 +607,8 @@ def main():
         safe_print("=======================================================\n")
         
         # Select the latest known video from OtakuMedia1: 'qfNnzLfvgGg'
-        test_vid_id = "qfNnzLfvgGg"
-        test_title = "They Still HATE Todo In JJK Modulo!"
+        test_vid_id = "TIHVh1jGBas"
+        test_title = "Sukuna Had MULTIPLE Women In The Heian Era!?"
         test_caption = f"[Test Private] {test_title} #fyp #viral #shorts #jjk".strip()
         
         workspace_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspace")
