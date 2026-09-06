@@ -155,7 +155,7 @@ def download_short(video_id: str, output_path: str) -> Dict[str, Any]:
 
 
 # --- Headless TikTok Uploader ---
-def upload_to_tiktok(video_path: str, caption: str, cookie_input: str) -> bool:
+def upload_to_tiktok(video_path: str, caption: str, cookie_input: str, is_private: bool = False) -> bool:
     """Uploads video directly to TikTok Creator Center using headless Chrome & injected cookies."""
     from selenium import webdriver
     from selenium.webdriver.common.by import By
@@ -237,6 +237,28 @@ def upload_to_tiktok(video_path: str, caption: str, cookie_input: str) -> bool:
 
         # Ingestion wait
         time.sleep(8)
+
+        # Set Private visibility if requested
+        if is_private:
+            safe_print("[TikTok] Setting video privacy to PRIVATE (Only you)...")
+            time.sleep(2)
+            try:
+                priv_selectors = [
+                    '//input[@type="radio" and (@value="private" or @value="self" or @value="2")]',
+                    '//label[contains(., "Private") or contains(., "Only you")]',
+                    '//span[normalize-space()="Private" or normalize-space()="Only you"]',
+                    '//div[normalize-space()="Private" or normalize-space()="Only you"]'
+                ]
+                for p_sel in priv_selectors:
+                    p_btns = driver.find_elements(By.XPATH, p_sel)
+                    if p_btns:
+                        target_p = p_btns[0]
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_p)
+                        driver.execute_script("arguments[0].click();", target_p)
+                        safe_print("[TikTok] Successfully selected Private visibility.")
+                        break
+            except Exception as pe:
+                safe_print(f"[TikTok] Note selecting private visibility: {pe}")
 
         # 4. Set Caption
         if caption:
@@ -352,6 +374,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true", default=(os.getenv("DRY_RUN", "false").lower() == "true"))
     parser.add_argument("--instant", action="store_true", default=(os.getenv("INSTANT", "false").lower() == "true"))
     parser.add_argument("--test-login", action="store_true", default=(os.getenv("TEST_LOGIN", "false").lower() == "true"))
+    parser.add_argument("--test-upload-private", action="store_true", default=(os.getenv("TEST_UPLOAD_PRIVATE", "false").lower() == "true"))
     parser.add_argument("--history-file", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "history.json"))
     args = parser.parse_args()
 
@@ -370,6 +393,48 @@ def main():
     safe_print(f"Dry Run Mode:          {dry_run}")
     safe_print(f"History File:          {history_file}")
     safe_print("==========================================================\n")
+
+    if args.test_upload_private:
+        safe_print("\n=======================================================")
+        safe_print("  TEST MODE: UPLOADING 1 VIDEO AS PRIVATE TO TIKTOK     ")
+        safe_print("=======================================================\n")
+        
+        # Select the latest known video from OtakuMedia1: 'qfNnzLfvgGg'
+        test_vid_id = "qfNnzLfvgGg"
+        test_title = "They Still HATE Todo In JJK Modulo!"
+        test_caption = f"[Test Private] {test_title} #fyp #viral #shorts #jjk".strip()
+        
+        workspace_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspace")
+        os.makedirs(workspace_dir, exist_ok=True)
+        raw_mp4 = os.path.join(workspace_dir, f"test_raw_{test_vid_id}.mp4")
+        final_61s_mp4 = os.path.join(workspace_dir, f"test_final_61s_{test_vid_id}.mp4")
+        
+        safe_print(f"[Test-Upload] Downloading test video {test_vid_id}...")
+        download_short(test_vid_id, raw_mp4)
+        
+        safe_print("[Test-Upload] Stretching video to 61s...")
+        processed_file = extend_to_61_seconds(raw_mp4, final_61s_mp4, target_seconds=61.0)
+        
+        cookie_input = os.getenv("TIKTOK_COOKIES", "")
+        if not cookie_input:
+            local_cookie_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tiktok_cookies.json")
+            if os.path.exists(local_cookie_path):
+                with open(local_cookie_path, "r", encoding="utf-8") as lcf:
+                    cookie_input = lcf.read().strip()
+        
+        if not cookie_input:
+            safe_print("[Test-Upload] ERROR: No TIKTOK_COOKIES found!")
+            sys.exit(1)
+            
+        safe_print("[Test-Upload] Uploading to TikTok with PRIVATE visibility...")
+        success = upload_to_tiktok(processed_file, test_caption, cookie_input, is_private=True)
+        
+        if success:
+            safe_print("\n=======================================================")
+            safe_print("  SUCCESS! TEST VIDEO UPLOADED AS PRIVATE TO TIKTOK!   ")
+            safe_print("  Check your TikTok profile (Private/Only Me tab)!     ")
+            safe_print("=======================================================\n")
+        sys.exit(0)
 
     if args.test_login:
         safe_print("\n[TEST-LOGIN] Running TikTok authentication test in cloud browser...")
