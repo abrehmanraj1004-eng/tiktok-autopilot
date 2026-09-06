@@ -1,13 +1,9 @@
 name: TikTok 24/7 Auto-Pilot (Shorts to TikTok)
 
 on:
-  schedule:
-    # 19:55 UTC = 12:55 AM PKT (catches 01:00 AM Short)
-    # 15:55 UTC = 08:55 PM PKT (catches 09:00 PM Short)
-    # 17:55 UTC = 10:55 PM PKT (catches 11:00 PM Short)
-    - cron: '55 15,17,19 * * *'
+  repository_dispatch:
+    types: [tiktok_auto_upload]
   workflow_dispatch:
-
     inputs:
       test_upload_private:
         description: 'Upload 1 old video as PRIVATE to test end-to-end'
@@ -29,6 +25,11 @@ on:
         required: false
         type: boolean
         default: false
+  schedule:
+    # 19:55 UTC = 12:55 AM PKT (catches 01:00 AM Short)
+    # 15:55 UTC = 08:55 PM PKT (catches 09:00 PM Short)
+    # 17:55 UTC = 10:55 PM PKT (catches 11:00 PM Short)
+    - cron: '55 15,17,19 * * *'
 
 permissions:
   contents: write
