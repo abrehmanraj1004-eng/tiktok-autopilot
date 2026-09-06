@@ -13,7 +13,7 @@ on:
         description: 'Upload 1 old video as PRIVATE to test end-to-end'
         required: false
         type: boolean
-        default: false
+        default: true
       test_login:
         description: 'Verify TikTok login & cookies in cloud browser'
         required: false
@@ -82,6 +82,15 @@ jobs:
             ARGS="$ARGS --instant"
           fi
           python cloud_uploader.py $ARGS
+
+      - name: Upload Browser Debug Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tiktok-browser-screenshots
+          path: |
+            workspace/screenshots/*.png
+            workspace/*.png
 
       - name: Commit Updated History
         run: |
