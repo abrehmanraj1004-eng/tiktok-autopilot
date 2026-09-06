@@ -17,6 +17,8 @@ Workflow:
 import os
 import sys
 import json
+import urllib.parse
+import requests
 import time
 import argparse
 from datetime import datetime, timezone, timedelta
@@ -179,10 +181,84 @@ def get_channel_shorts(channel_url: str, max_entries: int = 5) -> List[Dict[str,
         return res.get("entries", []) if res else []
 
 
+def download_via_cnvmp3(video_id: str, output_path: str) -> Optional[Dict[str, Any]]:
+    """PRIMARY: Downloads YouTube video/short via cnvmp3.com without requiring cookies or nodejs."""
+    safe_print(f"[Downloader-cnvmp3] Fetching video {video_id} via cnvmp3.com...")
+    try:
+        session = requests.Session()
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "Referer": "https://cnvmp3.com/v55",
+            "Origin": "https://cnvmp3.com",
+            "Content-Type": "application/json"
+        }
+        youtube_url = f"https://www.youtube.com/watch?v={video_id}"
+
+        # 1. Get video title
+        title = "Short Video"
+        try:
+            get_res = session.post("https://cnvmp3.com/get_video_data.php", json={"url": youtube_url, "token": "1234"}, headers=headers, timeout=15)
+            if get_res.status_code == 200:
+                title = get_res.json().get("title", title)
+                safe_print(f"[Downloader-cnvmp3] Video title: {title}")
+        except Exception:
+            pass
+
+        # 2. Trigger conversion
+        conv_payload = {"url": youtube_url, "quality": 1080, "title": title, "formatValue": 0}
+        conv_res = session.post("https://cnvmp3.com/download_video_ucep.php", json=conv_payload, headers=headers, timeout=30)
+        if conv_res.status_code != 200:
+            safe_print(f"[Downloader-cnvmp3] Conversion request failed: {conv_res.status_code}")
+            return None
+
+        conv_data = conv_res.json()
+        raw_link = conv_data.get("download_link")
+        if not raw_link:
+            safe_print("[Downloader-cnvmp3] No download link returned from cnvmp3")
+            return None
+
+        # 3. Download stream with encoded filename
+        parsed = urllib.parse.urlparse(raw_link)
+        qs = urllib.parse.parse_qs(parsed.query)
+        file_param = qs.get("file", [""])[0]
+        encoded_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?file={urllib.parse.quote(file_param)}"
+
+        stream_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "Referer": "https://cnvmp3.com/"
+        }
+        r = requests.get(encoded_url, headers=stream_headers, stream=True, timeout=60)
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        with open(output_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=16384):
+                if chunk:
+                    f.write(chunk)
+
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 200000:
+            safe_print(f"[Downloader-cnvmp3] Download successful! Size: {os.path.getsize(output_path)} bytes")
+            dur = 0
+            try:
+                from moviepy.editor import VideoFileClip
+                with VideoFileClip(output_path) as clip:
+                    dur = clip.duration
+                safe_print(f"[Downloader-cnvmp3] Verified video duration: {dur}s")
+            except Exception as e:
+                safe_print(f"[Downloader-cnvmp3] Note getting duration: {e}")
+
+            return {
+                "id": video_id,
+                "title": title,
+                "duration": dur,
+                "file_path": output_path
+            }
+    except Exception as e:
+        safe_print(f"[Downloader-cnvmp3] Error: {e}")
+    return None
+
 def download_short(video_id: str, output_path: str) -> Dict[str, Any]:
-    """Downloads single short in 1080p MP4 format."""
+    """Downloads short using cnvmp3.com as PRIMARY, with yt-dlp + cookies as BACKUP."""
     video_url = f"https://www.youtube.com/shorts/{video_id}"
-    safe_print(f"[Downloader] Downloading {video_url}...")
+    safe_print(f"\n[Downloader] Starting download for {video_url}")
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     if os.path.exists(output_path):
@@ -191,6 +267,19 @@ def download_short(video_id: str, output_path: str) -> Dict[str, Any]:
         except Exception:
             pass
 
+    # ==========================================
+    # 1. PRIMARY METHOD: cnvmp3.com
+    # ==========================================
+    safe_print("[Downloader] >>> PRIMARY METHOD: Attempting download via cnvmp3.com...")
+    cnv_res = download_via_cnvmp3(video_id, output_path)
+    if cnv_res and os.path.exists(output_path) and os.path.getsize(output_path) > 200000:
+        safe_print("[Downloader] >>> PRIMARY SUCCESS: Video successfully downloaded via cnvmp3.com!\n")
+        return cnv_res
+
+    # ==========================================
+    # 2. BACKUP METHOD: yt-dlp (with Cookies)
+    # ==========================================
+    safe_print("[Downloader] >>> Primary method failed or unavailable. Switching to BACKUP: yt-dlp with Cookies...")
     cookie_file = get_youtube_cookiefile()
     ydl_opts = {
         "format": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best[ext=mp4]/best",
@@ -207,17 +296,23 @@ def download_short(video_id: str, output_path: str) -> Dict[str, Any]:
     if cookie_file and os.path.exists(cookie_file):
         ydl_opts["cookiefile"] = cookie_file
         ydl_opts.pop("extractor_args", None)
-        safe_print(f"[Downloader] Using YouTube cookies from {cookie_file}")
+        safe_print(f"[Downloader] Using YouTube backup cookies from {cookie_file}")
     else:
-        safe_print("[Downloader] Note: No YOUTUBE_COOKIES provided, using direct download.")
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(video_url, download=True)
-        return {
-            "id": video_id,
-            "title": info.get("title", ""),
-            "duration": info.get("duration", 0),
-            "file_path": output_path
-        }
+        safe_print("[Downloader] Note: No YOUTUBE_COOKIES provided for backup.")
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(video_url, download=True)
+            safe_print("[Downloader] >>> BACKUP SUCCESS: Video downloaded via yt-dlp!\n")
+            return {
+                "id": video_id,
+                "title": info.get("title", ""),
+                "duration": info.get("duration", 0),
+                "file_path": output_path
+            }
+    except Exception as e:
+        safe_print(f"[Downloader] Backup yt-dlp also failed: {e}")
+        raise e
 
 
 # --- Headless TikTok Uploader ---
