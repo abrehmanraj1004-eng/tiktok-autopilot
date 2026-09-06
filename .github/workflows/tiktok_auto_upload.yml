@@ -2,9 +2,6 @@ name: TikTok 24/7 Auto-Pilot (Shorts to TikTok)
 
 on:
   schedule:
-    # 15:58 UTC = 08:58 PM PKT (catches 09:00 PM Short)
-    # 17:58 UTC = 10:58 PM PKT (catches 11:00 PM Short)
-    # 19:58 UTC = 12:58 AM PKT (catches 01:00 AM Short)
     - cron: '58 15,17,19 * * *'
   workflow_dispatch:
     inputs:
