@@ -1,0 +1,79 @@
+name: TikTok 24/7 Auto-Pilot (Shorts to TikTok)
+
+on:
+  schedule:
+    # 3 Daily Scheduled Upload Windows (UTC):
+    # 15:58 UTC = 08:58 PM PKT (catches 09:00 PM Short)
+    # 17:58 UTC = 10:58 PM PKT (catches 11:00 PM Short)
+    # 19:58 UTC = 12:58 AM PKT (catches 01:00 AM Short)
+    - cron: '58 15,17,19 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (download & 61s test without TikTok upload)'
+        required: false
+        type: boolean
+        default: false
+      instant_check:
+        description: 'Check once immediately without waiting in 10-min loop'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install System Dependencies (FFmpeg & Chrome)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg wget ca-certificates
+          # Setup Google Chrome for headless upload
+          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-cloud.txt
+
+      - name: Run Cloud Uploader Bot
+        env:
+          YOUTUBE_CHANNEL_URL: 'https://www.youtube.com/@OtakuMedia1/shorts'
+          TIKTOK_COOKIES: ${{ secrets.TIKTOK_COOKIES }}
+          MAX_WAIT_MINUTES: 12
+          POLL_INTERVAL_SECONDS: 5
+          DRY_RUN: ${{ inputs.dry_run }}
+          INSTANT: ${{ inputs.instant_check }}
+        run: |
+          ARGS=""
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          if [ "$INSTANT" = "true" ]; then
+            ARGS="$ARGS --instant"
+          fi
+          python cloud_uploader.py $ARGS
+
+      - name: Commit Updated History
+        run: |
+          git config --global user.name "TikTok-AutoPilot-Bot"
+          git config --global user.email "bot@github-actions.local"
+          git add history.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: auto-record uploaded shorts [skip ci]" && git push)
