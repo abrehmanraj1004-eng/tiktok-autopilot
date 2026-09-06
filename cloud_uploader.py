@@ -351,6 +351,7 @@ def main():
     parser.add_argument("--poll-interval-seconds", type=int, default=int(os.getenv("POLL_INTERVAL_SECONDS", 5)))
     parser.add_argument("--dry-run", action="store_true", default=(os.getenv("DRY_RUN", "false").lower() == "true"))
     parser.add_argument("--instant", action="store_true", default=(os.getenv("INSTANT", "false").lower() == "true"))
+    parser.add_argument("--test-login", action="store_true", default=(os.getenv("TEST_LOGIN", "false").lower() == "true"))
     parser.add_argument("--history-file", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "history.json"))
     args = parser.parse_args()
 
@@ -369,6 +370,69 @@ def main():
     safe_print(f"Dry Run Mode:          {dry_run}")
     safe_print(f"History File:          {history_file}")
     safe_print("==========================================================\n")
+
+    if args.test_login:
+        safe_print("\n[TEST-LOGIN] Running TikTok authentication test in cloud browser...")
+        cookie_input = os.getenv("TIKTOK_COOKIES", "")
+        if not cookie_input:
+            local_cookie_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tiktok_cookies.json")
+            if os.path.exists(local_cookie_path):
+                with open(local_cookie_path, "r", encoding="utf-8") as lcf:
+                    cookie_input = lcf.read().strip()
+        if not cookie_input:
+            safe_print("[TEST-LOGIN] ERROR: No TIKTOK_COOKIES found in secrets!")
+            sys.exit(1)
+
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        options = Options()
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1920,1080")
+        options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+        
+        driver = webdriver.Chrome(options=options)
+        try:
+            driver.get("https://www.tiktok.com")
+            time.sleep(2)
+            try:
+                cookies = json.loads(cookie_input)
+                if isinstance(cookies, dict):
+                    cookies = [{"name": k, "value": v} for k, v in cookies.items()]
+            except Exception:
+                cookies = [{"name": "sessionid", "value": cookie_input}]
+            
+            for c in cookies:
+                try:
+                    driver.add_cookie({"name": c["name"], "value": c["value"], "path": "/"})
+                except Exception:
+                    pass
+            
+            safe_print("[TEST-LOGIN] Cookies added. Navigating to TikTok Studio upload page...")
+            driver.get("https://www.tiktok.com/creator-center/upload?from=upload")
+            time.sleep(6)
+            
+            curr = driver.current_url.lower()
+            safe_print(f"[TEST-LOGIN] Landed URL: {driver.current_url}")
+            safe_print(f"[TEST-LOGIN] Page Title: {driver.title}")
+            
+            inputs = driver.find_elements("xpath", '//input[@type="file"]')
+            if inputs:
+                safe_print("\n=======================================================")
+                safe_print("  SUCCESS! TIKTOK ACCOUNT IS 100% CONNECTED & VERIFIED! ")
+                safe_print(f"  Upload Studio is ready and accessible in the cloud!")
+                safe_print("=======================================================\n")
+                sys.exit(0)
+            elif "login" in curr:
+                safe_print("\n[TEST-LOGIN] FAILED: Redirected to login page. Cookies need refresh.")
+                sys.exit(1)
+            else:
+                safe_print(f"\n[TEST-LOGIN] Warning: Neither login nor file input found. Title: {driver.title}")
+                sys.exit(0)
+        finally:
+            driver.quit()
 
     history = load_history(history_file)
     uploaded = history.setdefault("uploaded_videos", {})
