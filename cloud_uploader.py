@@ -107,6 +107,60 @@ def save_history(history_file: str, history_data: Dict[str, Any]):
     safe_print(f"[History] Updated history saved to {history_file}")
 
 
+# --- YouTube Cookie Loader ---
+def get_youtube_cookiefile() -> Optional[str]:
+    """Converts Cookie-Editor JSON or Netscape format into a Netscape cookie file for yt-dlp."""
+    raw = os.getenv("YOUTUBE_COOKIES", "").strip()
+    if not raw:
+        local_json = os.path.join(os.path.dirname(os.path.abspath(__file__)), "youtube_cookies.json")
+        local_txt = os.path.join(os.path.dirname(os.path.abspath(__file__)), "youtube_cookies.txt")
+        if os.path.exists(local_json):
+            try:
+                with open(local_json, "r", encoding="utf-8") as f:
+                    raw = f.read().strip()
+            except Exception:
+                pass
+        elif os.path.exists(local_txt):
+            return local_txt
+
+    if not raw:
+        return None
+
+    # Direct Netscape format check
+    if raw.startswith("# Netscape") or (not raw.startswith("[") and not raw.startswith("{") and "\t" in raw):
+        cookie_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "youtube_cookies_runtime.txt")
+        with open(cookie_file, "w", encoding="utf-8") as f:
+            f.write(raw)
+        return cookie_file
+
+    # Cookie-Editor JSON format
+    try:
+        cookies_data = json.loads(raw)
+        if isinstance(cookies_data, dict):
+            cookies_data = [cookies_data]
+
+        lines = ["# Netscape HTTP Cookie File", "# https://curl.haxx.se/rfc/cookie_spec.html", ""]
+        for c in cookies_data:
+            domain = c.get("domain", "")
+            flag = "TRUE" if domain.startswith(".") else "FALSE"
+            path = c.get("path", "/")
+            secure = "TRUE" if c.get("secure", False) else "FALSE"
+            exp = str(int(c.get("expirationDate", 2147483647)))
+            name = c.get("name", "")
+            val = c.get("value", "")
+            if name:
+                lines.append(f"{domain}\t{flag}\t{path}\t{secure}\t{exp}\t{name}\t{val}")
+
+        cookie_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "youtube_cookies_runtime.txt")
+        with open(cookie_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        safe_print("[YouTube] Converted YOUTUBE_COOKIES JSON to Netscape format successfully.")
+        return cookie_file
+    except Exception as e:
+        safe_print(f"[YouTube] Warning converting YOUTUBE_COOKIES: {e}")
+        return None
+
+
 # --- YouTube Scanner ---
 def get_channel_shorts(channel_url: str, max_entries: int = 5) -> List[Dict[str, Any]]:
     """Fast flat extraction of latest shorts without downloading media."""
@@ -137,6 +191,7 @@ def download_short(video_id: str, output_path: str) -> Dict[str, Any]:
         except Exception:
             pass
 
+    cookie_file = get_youtube_cookiefile()
     ydl_opts = {
         "format": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best[ext=mp4]/best",
         "outtmpl": output_path,
@@ -149,6 +204,11 @@ def download_short(video_id: str, output_path: str) -> Dict[str, Any]:
             }
         }
     }
+    if cookie_file and os.path.exists(cookie_file):
+        ydl_opts["cookiefile"] = cookie_file
+        safe_print(f"[Downloader] Using YouTube cookies from {cookie_file}")
+    else:
+        safe_print("[Downloader] Note: No YOUTUBE_COOKIES provided, using direct download.")
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(video_url, download=True)
         return {
