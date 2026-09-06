@@ -2,13 +2,17 @@ name: TikTok 24/7 Auto-Pilot (Shorts to TikTok)
 
 on:
   schedule:
-    # 3 Daily Scheduled Upload Windows (UTC):
     # 15:58 UTC = 08:58 PM PKT (catches 09:00 PM Short)
     # 17:58 UTC = 10:58 PM PKT (catches 11:00 PM Short)
     # 19:58 UTC = 12:58 AM PKT (catches 01:00 AM Short)
     - cron: '58 15,17,19 * * *'
   workflow_dispatch:
     inputs:
+      test_login:
+        description: 'Verify TikTok login & cookies in cloud browser'
+        required: false
+        type: boolean
+        default: false
       dry_run:
         description: 'Dry run (download & 61s test without TikTok upload)'
         required: false
@@ -56,9 +60,12 @@ jobs:
           POLL_INTERVAL_SECONDS: 5
           DRY_RUN: ${{ inputs.dry_run }}
           INSTANT: ${{ inputs.instant_check }}
+          TEST_LOGIN: ${{ inputs.test_login }}
         run: |
           ARGS=""
-          if [ "$DRY_RUN" = "true" ]; then
+          if [ "$TEST_LOGIN" = "true" ]; then
+            ARGS="$ARGS --test-login"
+          elif [ "$DRY_RUN" = "true" ]; then
             ARGS="$ARGS --dry-run"
           fi
           if [ "$INSTANT" = "true" ]; then
