@@ -206,6 +206,7 @@ def download_short(video_id: str, output_path: str) -> Dict[str, Any]:
     }
     if cookie_file and os.path.exists(cookie_file):
         ydl_opts["cookiefile"] = cookie_file
+        ydl_opts.pop("extractor_args", None)
         safe_print(f"[Downloader] Using YouTube cookies from {cookie_file}")
     else:
         safe_print("[Downloader] Note: No YOUTUBE_COOKIES provided, using direct download.")
